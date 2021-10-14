@@ -1,0 +1,3 @@
+Fizzbuzz - DONE
+Tictactoe - DONE
+Weather Report CLI

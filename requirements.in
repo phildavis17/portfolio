@@ -1,0 +1,5 @@
+black
+pytest
+requests
+reverse_geocoder
+rich
