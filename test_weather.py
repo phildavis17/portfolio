@@ -2,7 +2,9 @@ import pytest
 import weather
 
 def test_get_weather():
-    assert weather._get_current_weather_by_zip() is not None
+    nyc_lat = 40.827232375361085
+    nyc_long = -73.9466391392184
+    assert weather._get_weather_info_by_coord(nyc_lat, nyc_long)
 
 def test_heading():
     assert weather._parse_compass_heading(5) == "N"
@@ -34,3 +36,17 @@ def test_mps_to_mph():
     assert weather._mps_to_mph(0) == 0
     assert weather._mps_to_mph(1) == 2.24
     assert weather._mps_to_mph(100) == 223.7
+
+def test_make_ordinal():
+    assert weather._make_ordinal(1) == "1st"
+    assert weather._make_ordinal(2) == "2nd"
+    assert weather._make_ordinal(3) == "3rd"
+    assert weather._make_ordinal(4) == "4th"
+    assert weather._make_ordinal(0) == "0th"
+    assert weather._make_ordinal(11) == "11th"
+    assert weather._make_ordinal(12) == "12th"
+    assert weather._make_ordinal(13) == "13th"
+    assert weather._make_ordinal(14) == "14th"
+    assert weather._make_ordinal(10) == "10th"
+    assert weather._make_ordinal(112) == "112th"
+    assert weather._make_ordinal(-5) == "-5th"

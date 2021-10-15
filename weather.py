@@ -8,17 +8,31 @@ import requests
 
 from weather_secrets import OWM_API_KEY
 
+# TODO: cached weather requests (time (10 min) and LAT/LONG (+/- some threshold))
+# TODO: Today's weather
+# TODO: exclude minutely
+# TODO: evironment variable awareness for -location -units
+
+
+
+
+
+
+
 DEFAULT_ZIP = "10031"
 DEFAULT_COUNTRY_CODE = "US"
+
 
 def _k_to_f(k: float) -> float:
     """Returns the supplied float converted from Kelvin to Farenheit."""
     return round((k-273.15) * 9/5 + 32, 3)
 
 def _mps_to_mph(s: float) -> float:
+    """Returns the supplied float converted from meters per second to miles per hour."""
     return round(s * 2.237, 2)
 
 def _parse_compass_heading(heading: float) -> str:
+    """Converts a supplied compas headinf float to a string describing direction."""
     points = {
         0: "N",
         1: "NNE",
@@ -63,21 +77,48 @@ def _parse_beaufort_wind_speed(wind_speed: float) -> str:
             break
     return description
 
+def _make_ordinal(n: int) -> str:
+    """Returns the supplied int as an ordinal number string."""
+    oridnal_suffix = {
+        "1": "st",
+        "2": "nd",
+        "3": "rd",
+    }
+    if str(n)[-1] in oridnal_suffix and not 10 < n % 100 < 14:
+        return str(n) + oridnal_suffix[str(n)[-1]]
+    return str(n) + "th"
+
+
 def _get_time_from_timestamp(timestamp:int) -> str:
+    """Converts an epoch based timestamp to a 12 hr HH:MM formatted time."""
     dt = datetime.datetime.fromtimestamp(timestamp)
-    return f"{dt.hour % 12 or 12}:00"
+    return f"{dt.hour % 12 or 12}:{dt.minute}"
+
+def _get_long_date_from_timestamp(timestamp: int) -> str:
+    """Returns a long date string from a timestamp."""
+    dt = datetime.date.fromtimestamp(timestamp)
+    return dt.strftime(f"%A, %B {_make_ordinal(dt.day)}")
+
+def _get_short_date_from_timestamp(timestamp: int) -> str:
+    """Returns a short date string from a timestamp."""
+    dt = datetime.date.fromtimestamp(timestamp)
+    return dt.strftime(f"{dt.month}/{dt.day}/%y")
 
 def _get_weather_info_by_coord(lat: float, long: float, api_key=OWM_API_KEY) -> dict:
+    """Requests weather info for the supplied lat long coordinates from the OpenWeatherMap API and returns the response as a JSON object."""
     weather_api_uri = f"https://api.openweathermap.org/data/2.5/onecall?lat={lat}&lon={long}&appid={api_key}"
     raw_response = requests.get(weather_api_uri)
     return json.loads(raw_response.text)
 
 def _osm_reverse_lookup(lat: float, long: float):
+    """Uses the OpenStreetMap API to reverse-geocode the supplied lat long coordinates."""
     osm_reverse_api_uri = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={long}&zoom=10&format=jsonv2"
     osm_response = requests.get(osm_reverse_api_uri)
     return json.loads(osm_response.text)
 
 class WeatherReport():
+    """A class to parse, contain, and display weather information."""
+    
     def __init__(self, lat:float, long:float) -> None:
         weather_dict = _get_weather_info_by_coord(lat, long)
         loc_dict = _osm_reverse_lookup(lat, long)
@@ -93,6 +134,7 @@ class WeatherReport():
             self.alerts = ""
     
     def get_current_weather(self) -> str:
+        """Returns a string describing current weather conditions."""
         desc = self.raw_current["weather"][0]["description"].capitalize()
         temp = self._generate_temp_report(int(_k_to_f(self.raw_current["temp"])),int(_k_to_f(self.raw_current["feels_like"])))
         humidity = self.raw_current["humidity"]
@@ -107,6 +149,7 @@ class WeatherReport():
         return report
 
     def _generate_hourly_report(self, hourly_dict:dict) -> dict:
+        """Returns a dict containing strings describing hourly weather conditions."""
         hourly_report_dict = {
             "desc": f'{hourly_dict["weather"][0]["description"].capitalize()}',
             "dt": f'{_get_time_from_timestamp(hourly_dict["dt"])}',
@@ -118,6 +161,7 @@ class WeatherReport():
         return hourly_report_dict
 
     def get_hourly_weather(self) -> str:
+        """Returns a string describing the hourly weather conditions for the next 24 hours."""
         raw_dicts = self.raw_hourly[:24]
         hourly_dicts = [self._generate_hourly_report(d) for d in raw_dicts]
         reports = self._format_hourly_reports(hourly_dicts)
@@ -130,12 +174,14 @@ class WeatherReport():
     
     @classmethod
     def _format_hourly_reports(cls, reports: list) -> list:
+        """A convenience method consolidating report formatting steps into a single call."""
         reports = cls._insert_repeat_characters(reports)
         reports = cls._enhance_repeat_characters(reports)
         return cls._pad_report_strings(reports)
 
     @staticmethod
     def _insert_repeat_characters(reports: list) -> list:
+        """Replaces weather description strings with a repeat character if the condition has not changed from the previous instance."""
         skip_keys = {"temp", "humidity"}
         most_recent = {}
         for report in reports:
@@ -153,6 +199,7 @@ class WeatherReport():
     
     @staticmethod
     def _enhance_repeat_characters(reports: list) -> list:
+        """Replaces all but the last repeat character in a series with a different one, indicating continuity."""
         for i, report in enumerate(reports):
             if i == len(reports) - 1:
                 break
@@ -163,6 +210,7 @@ class WeatherReport():
 
     @staticmethod
     def _generate_hourly_report_string(weather_dict: dict) -> str:
+        """Converts an hourly weather dict into a long string."""
         report = (
             f"  {weather_dict['dt']} | "
             f"{weather_dict['desc']} | "
@@ -175,6 +223,7 @@ class WeatherReport():
 
     @staticmethod
     def _pad_report_strings(report_list: list) -> list:
+        """Adds empty characters to the values in a list of dicts until each value is as long as the longest value for that key."""
         # find max length of each report element
         max_dict = {k: 0 for k in report_list[0]}
         for k in max_dict:
@@ -186,8 +235,49 @@ class WeatherReport():
                 report[k] = str.center(v, max_dict[k])
         return report_list
 
+    def get_weekly_weather(self):
+        dicts = [self._build_weekday_weather_dict(day) for day in self.raw_daily]
+        str_list = self._construct_weekly_report(dicts)
+        report = ""
+        for weather_str in str_list:
+            report += weather_str + "\n"
+        return report
+    
+    @classmethod
+    def _construct_weekly_report(cls, dicts_list: list) -> list:
+        """A convenience method tying together the methods involved in constructing and formatting a weekly report."""
+        padded = cls._pad_report_strings(dicts_list)
+        return [cls._format_weekday_weather_dict(d) for d in padded]
+
+    @classmethod
+    def _build_weekday_weather_dict(cls, weekday_weather_dict) -> dict:
+        report_dict = {
+            "short_date": _get_short_date_from_timestamp(weekday_weather_dict['dt']),
+            "long_date": _get_long_date_from_timestamp(weekday_weather_dict['dt']),
+            "desc": weekday_weather_dict["weather"][0]["description"].capitalize(),
+            "temp": cls._generate_temp_report(int(_k_to_f(weekday_weather_dict["temp"]["day"])), int(_k_to_f(weekday_weather_dict["feels_like"]["day"]))),
+            "humidity": f"{weekday_weather_dict['humidity']}% humidity",
+            "wind": _parse_beaufort_wind_speed(_mps_to_mph(weekday_weather_dict["wind_speed"])),
+            "pop": f"{int(weekday_weather_dict['pop'] * 100)}% chance of precipitation"
+        }
+        return report_dict
+
+    @classmethod
+    def _format_weekday_weather_dict(cls, info_dict: dict) -> str:
+        """Constructs a string describing the weather conditions for on day in a week."""
+        report_str = (
+            f"{info_dict['long_date']}: "
+            f"{info_dict['desc']} | "
+            f"{info_dict['temp']} | "
+            f"{info_dict['humidity']} | "
+            f"{info_dict['wind']} | "
+            f"{info_dict['pop']}"
+        )
+        return report_str
+
     @staticmethod
     def _generate_temp_report(temp:int, feel: int) -> str:
+        """Returns a string describing temperature conditions."""
         report_str = f"{temp}°"
         if feel - temp > 3:
             report_str = f"Feels like {feel}°"
@@ -195,6 +285,7 @@ class WeatherReport():
    
     @staticmethod
     def _generate_wind_report(wind_speed: float, wind_dir: int) -> str:
+        """Returns a string describing wind conditions."""
         wind_description = _parse_beaufort_wind_speed(_mps_to_mph(wind_speed))
         if wind_speed < 1:
             return wind_description
@@ -214,7 +305,8 @@ if __name__ == "__main__":
     cr_long = -94.65589705807416
     #loc = reverse_geocoder.search((lat, long))
     weather = WeatherReport(nyc_lat, nyc_long)
-    print(weather.get_hourly_weather())
+    #print(weather.get_hourly_weather())
+    print(weather.get_weekly_weather())
 
 
 
